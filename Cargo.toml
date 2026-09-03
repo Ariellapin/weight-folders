@@ -3,6 +3,9 @@ name = "weight-folders"
 version = "0.1.0"
 edition = "2021"
 description = "Scan a drive or folder and visualize folder/file sizes as a treemap"
+authors = ["Ariel Lapinin"]
+license = "MIT"
+repository = "https://github.com/Ariellapin/weight-folders"
 
 [dependencies]
 eframe = "0.36"

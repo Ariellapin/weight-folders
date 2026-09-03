@@ -1,0 +1,78 @@
+name: Release
+
+# Builds weight-folders.exe, a portable zip and an MSI installer.
+# - On a version tag (v1.2.3) the files are attached to a GitHub Release.
+# - "Run workflow" (workflow_dispatch) just uploads them as build artifacts.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # rust-toolchain.toml pins gnullvm for the author's machine, which has no
+  # MSVC. GitHub's Windows runners do have MSVC, so override it here.
+  RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-msvc
+
+jobs:
+  build:
+    name: Build exe and MSI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (MSVC)
+        run: rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Read version
+        id: meta
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" | Out-File -Append $env:GITHUB_OUTPUT
+          Write-Host "version $v"
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          dotnet wix extension add WixToolset.UI.wixext/5.0.2
+          New-Item -ItemType Directory -Force dist | Out-Null
+          dotnet wix build -arch x64 -ext WixToolset.UI.wixext `
+            -d Version=${{ steps.meta.outputs.version }} `
+            -d BinDir=target\release `
+            -o dist\weight-folders-${{ steps.meta.outputs.version }}-x64.msi `
+            wix\main.wxs
+
+      - name: Package exe
+        shell: pwsh
+        run: |
+          Copy-Item target\release\weight-folders.exe dist\
+          Compress-Archive -Path target\release\weight-folders.exe, README.md, LICENSE `
+            -DestinationPath dist\weight-folders-${{ steps.meta.outputs.version }}-x64-portable.zip
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weight-folders-${{ steps.meta.outputs.version }}
+          path: dist/*
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

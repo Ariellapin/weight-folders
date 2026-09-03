@@ -27,6 +27,30 @@ goes, as a zoomable treemap next to a folder tree.
   filtered to files or folders and by minimum size; click a result to jump to
   it.
 
+## Download
+
+Grab the latest build from the
+[Releases page](https://github.com/Ariellapin/weight-folders/releases/latest):
+
+- `weight-folders-<version>-x64.msi` — installer. Puts the app in
+  `Program Files\Weight Folders` and adds a Start Menu shortcut.
+- `weight-folders-<version>-x64-portable.zip` / `weight-folders.exe` — no
+  install needed, just run it.
+
+The binaries are not code-signed, so Windows SmartScreen may show a
+"Windows protected your PC" prompt the first time; choose *More info* →
+*Run anyway*.
+
+Releases are produced by the `Release` GitHub Actions workflow whenever a
+`v*` tag is pushed:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The MSI is defined in `wix/main.wxs` (WiX v5, installed as a local dotnet
+tool from `.config/dotnet-tools.json`).
+
 ## Building
 
 ```bash

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v5 installer definition. Built by .github/workflows/release.yml with:
+
+    dotnet wix build -arch x64 -ext WixToolset.UI.wixext \
+      -d Version=<x.y.z> -d BinDir=target\release \
+      -o dist\weight-folders-<x.y.z>-x64.msi wix\main.wxs
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Weight Folders"
+           Manufacturer="Ariel Lapinin"
+           Version="$(var.Version)"
+           UpgradeCode="7A3C1F2E-6B84-4D9A-9E51-2C0B8F4D6A11"
+           Language="1033"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="Weight Folders - disk usage treemap" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Weight Folders is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Ariellapin/weight-folders" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Weight Folders" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="Weight Folders" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExe">
+        <File Id="MainExe" Source="$(var.BinDir)\weight-folders.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="ReadmeFile">
+        <File Id="ReadmeFile" Source="README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseFile">
+        <File Id="LicenseFile" Source="LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="AppMenuFolder">
+      <Shortcut Id="StartMenuShortcut"
+                Name="Weight Folders"
+                Description="Scan a drive or folder and see where the space goes"
+                Target="[INSTALLFOLDER]weight-folders.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Weight Folders" Name="installed"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="Weight Folders" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="wix\License.rtf" />
+  </Package>
+</Wix>
