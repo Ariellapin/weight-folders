@@ -1,0 +1,5 @@
+# This machine has no Visual Studio / MSVC linker installed, but it does have
+# llvm-mingw (winget MartinStorsjo.LLVM-MinGW.UCRT). The gnullvm target links
+# with clang + lld from llvm-mingw and needs nothing else.
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnullvm"
