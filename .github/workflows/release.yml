@@ -50,7 +50,7 @@ jobs:
           dotnet tool restore
           dotnet wix extension add WixToolset.UI.wixext/5.0.2
           New-Item -ItemType Directory -Force dist | Out-Null
-          dotnet wix build -arch x64 -ext WixToolset.UI.wixext `
+          dotnet wix build -arch x64 -ext WixToolset.UI.wixext -pdbtype none `
             -d Version=${{ steps.meta.outputs.version }} `
             -d BinDir=target\release `
             -o dist\weight-folders-${{ steps.meta.outputs.version }}-x64.msi `
