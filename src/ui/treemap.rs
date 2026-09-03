@@ -3,13 +3,19 @@
 use crate::app::{ItemAction, Session};
 use crate::model::{fmt_size, NodeId, Tree};
 use egui::{pos2, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
-use std::hash::{Hash, Hasher};
 
-const MAX_DEPTH: u8 = 4;
+/// Nesting is limited by pixel size, not depth; this is only a safety net.
+const MAX_DEPTH: u8 = 32;
+/// Safety cap on laid-out rectangles per frame.
+const MAX_ITEMS: usize = 40_000;
 /// Directories smaller than this (in px) are not subdivided.
 const MIN_SUBDIVIDE: f32 = 28.0;
+/// Rectangles smaller than this (in px) are dropped.
+const MIN_ITEM: f32 = 2.0;
 const PAD: f32 = 2.0;
 const TITLE_H: f32 = 16.0;
+const LEGEND_W: f32 = 180.0;
+const LEGEND_H: f32 = 10.0;
 
 pub struct Item {
     pub id: NodeId,
@@ -27,6 +33,10 @@ pub struct TreemapCache {
     /// Item that was right-clicked; drives the context menu.
     pub ctx_item: Option<NodeId>,
     hover_info: Option<(NodeId, u64, u64)>,
+    /// Smallest / largest file size among the laid-out files; drives the
+    /// blue-to-red color scale of the current view.
+    file_min: u64,
+    file_max: u64,
 }
 
 impl TreemapCache {
@@ -44,11 +54,55 @@ impl TreemapCache {
         if self.key != Some(key) {
             self.items.clear();
             layout_children(tree, view, rect.shrink(1.0), 0, &mut self.items);
+            let (mut lo, mut hi) = (u64::MAX, 0u64);
+            for it in self.items.iter().filter(|it| !it.is_dir) {
+                let s = tree.node(it.id).size;
+                lo = lo.min(s);
+                hi = hi.max(s);
+            }
+            if lo == u64::MAX {
+                lo = 0;
+            }
+            self.file_min = lo;
+            self.file_max = hi;
             self.key = Some(key);
             self.ctx_item = None;
             self.hover_info = None;
         }
     }
+
+    /// 0.0 for the smallest visible file, 1.0 for the largest, log-scaled in
+    /// between so that a mix of KiB and GiB files still spreads out.
+    fn size_t(&self, size: u64) -> f32 {
+        let lo = (self.file_min.max(1) as f64).ln();
+        let hi = (self.file_max.max(1) as f64).ln();
+        if hi - lo < 1e-6 {
+            return 0.5;
+        }
+        let s = (size.max(1) as f64).ln();
+        (((s - lo) / (hi - lo)).clamp(0.0, 1.0)) as f32
+    }
+}
+
+/// Blue (smallest) → cyan → green → yellow → red (largest).
+pub fn scale_color(t: f32) -> Color32 {
+    const STOPS: [(f32, [f32; 3]); 5] = [
+        (0.0, [45.0, 95.0, 225.0]),
+        (0.25, [40.0, 190.0, 220.0]),
+        (0.5, [70.0, 195.0, 80.0]),
+        (0.75, [235.0, 205.0, 50.0]),
+        (1.0, [225.0, 50.0, 45.0]),
+    ];
+    let t = t.clamp(0.0, 1.0);
+    let mut i = 0;
+    while i + 2 < STOPS.len() && t > STOPS[i + 1].0 {
+        i += 1;
+    }
+    let (t0, c0) = STOPS[i];
+    let (t1, c1) = STOPS[i + 1];
+    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+    let mix = |a: f32, b: f32| (a + (b - a) * f).round() as u8;
+    Color32::from_rgb(mix(c0[0], c1[0]), mix(c0[1], c1[1]), mix(c0[2], c1[2]))
 }
 
 /// Lay out `sizes` (already scaled to pixel areas, sorted descending) inside
@@ -143,8 +197,11 @@ fn layout_children(tree: &Tree, id: NodeId, rect: Rect, depth: u8, out: &mut Vec
     let rects = squarify(&sizes, rect);
 
     for (k, &cid) in ids.iter().enumerate() {
+        if out.len() >= MAX_ITEMS {
+            return;
+        }
         let r = rects[k];
-        if r.width() < 1.0 || r.height() < 1.0 {
+        if r.width() < MIN_ITEM || r.height() < MIN_ITEM {
             continue;
         }
         let n = tree.node(cid);
@@ -183,19 +240,6 @@ fn hit_test(items: &[Item], p: Pos2) -> Option<NodeId> {
         }
     }
     best.map(|(_, id)| id)
-}
-
-fn file_color(name: &str) -> Color32 {
-    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-    let hue = match ext {
-        Some(e) if !e.is_empty() => {
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            e.hash(&mut h);
-            (h.finish() % 360) as f32 / 360.0
-        }
-        _ => 0.58,
-    };
-    Color32::from(egui::ecolor::Hsva::new(hue, 0.55, 0.72, 1.0))
 }
 
 fn dir_color(depth: u8) -> Color32 {
@@ -244,7 +288,7 @@ pub fn show(ui: &mut Ui, sess: &mut Session, actions: &mut Vec<ItemAction>) {
         } else if n.is_dir {
             dir_color(it.depth)
         } else {
-            file_color(&n.name)
+            scale_color(cache.size_t(n.size))
         };
         let is_hover = hovered == Some(it.id);
         let is_sel = selected == Some(it.id);
@@ -295,6 +339,38 @@ pub fn show(ui: &mut Ui, sess: &mut Session, actions: &mut Vec<ItemAction>) {
                 );
             }
         }
+    }
+
+    // Color legend (bottom-right) for the files currently shown.
+    if cache.file_max > 0 && rect.width() > LEGEND_W + 160.0 && rect.height() > 60.0 {
+        let bar = Rect::from_min_size(
+            pos2(rect.max.x - LEGEND_W - 10.0, rect.max.y - LEGEND_H - 8.0),
+            vec2(LEGEND_W, LEGEND_H),
+        );
+        let bg = bar.expand2(vec2(6.0, 4.0));
+        painter.rect_filled(bg, 3.0, Color32::from_black_alpha(170));
+        let steps = 36;
+        let w = bar.width() / steps as f32;
+        for i in 0..steps {
+            let t = i as f32 / (steps - 1) as f32;
+            let r = Rect::from_min_size(pos2(bar.min.x + i as f32 * w, bar.min.y), vec2(w + 0.5, bar.height()));
+            painter.rect_filled(r, 0.0, scale_color(t));
+        }
+        let lf = FontId::proportional(10.0);
+        painter.text(
+            pos2(bar.min.x - 8.0, bar.center().y),
+            Align2::RIGHT_CENTER,
+            fmt_size(cache.file_min),
+            lf.clone(),
+            Color32::from_gray(200),
+        );
+        painter.text(
+            pos2(bar.max.x + 8.0, bar.center().y),
+            Align2::LEFT_CENTER,
+            fmt_size(cache.file_max),
+            lf,
+            Color32::from_gray(200),
+        );
     }
 
     if cache.items.is_empty() {
@@ -395,6 +471,25 @@ mod tests {
                 assert!(inter.width() <= 0.01 || inter.height() <= 0.01, "overlap {i} {j}");
             }
         }
+    }
+
+    #[test]
+    fn color_scale_runs_blue_to_red() {
+        let lo = scale_color(0.0);
+        let hi = scale_color(1.0);
+        assert!(lo.b() > lo.r() && lo.b() > lo.g(), "smallest is blue: {lo:?}");
+        assert!(hi.r() > hi.g() && hi.r() > hi.b(), "largest is red: {hi:?}");
+        let mid = scale_color(0.5);
+        assert!(mid.g() > mid.r() && mid.g() > mid.b(), "middle is green: {mid:?}");
+
+        let mut c = TreemapCache::default();
+        c.file_min = 1024;
+        c.file_max = 1024 * 1024 * 1024;
+        assert_eq!(c.size_t(1024), 0.0);
+        assert_eq!(c.size_t(1024 * 1024 * 1024), 1.0);
+        let t = c.size_t(1024 * 1024);
+        assert!((t - 0.5).abs() < 0.01, "log midpoint: {t}");
+        assert_eq!(c.size_t(0), 0.0);
     }
 
     #[test]

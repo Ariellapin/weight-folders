@@ -7,9 +7,12 @@ goes, as a zoomable treemap next to a folder tree.
 
 - **Scan** any drive or folder recursively. The scan is parallel (rayon) and
   shows live progress; it can be cancelled.
-- **Treemap + tree panel.** Rectangles are proportional to size. Double-click a
-  folder to zoom in, use the breadcrumb, the **Up** button or **Backspace** to
-  zoom out. Hover for the full path and item counts.
+- **Treemap + tree panel.** Rectangles are proportional to size and nest as
+  deep as the pixels allow. Files are colored on a blue → green → red scale
+  (log-scaled) from the smallest to the largest file visible in the current
+  view; a legend in the corner shows the range. Folders are gray. Double-click
+  a folder to zoom in, use the breadcrumb, the **Up** button or **Backspace**
+  to zoom out. Hover for the full path and item counts.
 - **Open / Reveal / Copy path / Delete** from a right-click menu on any item in
   the treemap, the tree panel or the search results. Delete moves the item to
   the Windows Recycle Bin after a confirmation dialog. The **Delete** key works
